@@ -5,7 +5,7 @@ F -> (E) | I
 I -> "a" | "b" | "c"
 */
 
-use std::{fmt::Debug, iter::Peekable, str::Chars};
+use std::fmt::Debug;
 
 #[derive(Debug)]
 enum LexError {
@@ -15,110 +15,58 @@ enum LexError {
     FOUR,
 }
 
-trait Streamable<'a, I: Iterator<Item = char> + 'a> {
-    fn stream(&'a mut self) -> &'a mut Peekable<I>;
-}
-
-trait SkipSpaces<'a, I: Iterator<Item = char> + 'a>: Streamable<'a, I> {
-    fn skip_spaces(&mut self);
-}
-
-impl<'a, I, S> SkipSpaces<'a, I> for S
+trait Lex<S>
 where
-    I: Iterator<Item = char> + 'a,
-    S: Streamable<'a, I>,
+    for<'a> &'a mut S: Iterator<Item = char>,
 {
-    fn skip_spaces(&mut self) {
-        loop {
-            let peek = {
-                let peek = self.stream().peek().cloned();
-                if peek.is_none() {
-                    break;
-                }
-                peek.unwrap()
-            };
-
-            match peek {
-                ' ' => {
-                    self.stream().next();
-                }
-                _ => {
-                    break;
-                }
-            }
-        }
-    }
-}
-
-trait Lex<'a, I: Iterator<Item = char> + 'a>: Streamable<'a, I> {
     type Expected;
 
-    fn lex(self) -> Result<Self::Expected, LexError>;
+    fn lex(self, stream: &mut S) -> Result<Self::Expected, LexError>;
 }
 
 #[derive(Debug)]
-struct Empty<'a> {
-    stream: Peekable<Chars<'a>>,
-}
+struct EmptyLexer;
 
-impl<'a> Streamable<'a, Chars<'a>> for Empty<'a> {
-    fn stream(&'a mut self) -> &'a mut Peekable<Chars<'a>> {
-        &mut self.stream
-    }
-}
-
-impl<'a> Empty<'a> {
-    fn new(input: &'a str) -> Self {
-        Self {
-            stream: input.chars().peekable(),
-        }
+impl EmptyLexer {
+    fn new() -> Self {
+        Self {}
     }
 }
 
 #[derive(Debug)]
-struct Expr<'a> {
-    stream: Peekable<Chars<'a>>,
+struct Expr {
     lhs: u32,
     rhs: u32,
 }
 
-impl<'a> Streamable<'a, Chars<'a>> for Expr<'a> {
-    fn stream(&'a mut self) -> &'a mut Peekable<Chars<'a>> {
-        &mut self.stream
-    }
-}
-
-impl<'a, I: Iterator<Item = char> + 'a> Lex<'a, I> for Empty<'a>
+impl<S> Lex<S> for EmptyLexer
 where
-    Empty<'a>: Streamable<'a, I>,
+    for<'a> &'a mut S: Iterator<Item = char>,
 {
-    type Expected = Expr<'a>;
+    type Expected = Expr;
 
-    fn lex(mut self) -> Result<Self::Expected, LexError> {
-        let lhs = self
-            .stream()
+    fn lex(self, mut stream: &mut S) -> Result<Self::Expected, LexError> {
+        let lhs = stream
             .next()
             .ok_or(LexError::ONE)?
             .to_digit(10)
             .ok_or(LexError::TWO)?;
 
-        let rhs = self
-            .stream()
+        let rhs = stream
             .next()
             .ok_or(LexError::THREE)?
             .to_digit(10)
             .ok_or(LexError::FOUR)?;
 
-        Ok(Expr {
-            stream: self.stream,
-            lhs,
-            rhs,
-        })
+        Ok(Expr { lhs, rhs })
     }
 }
 
 fn main() {
-    let lex = Empty::new("012");
+    let mut stream = "12".chars();
+    println!("{stream:?}");
 
-    println!("{:?}", lex.lex());
+    let lex = EmptyLexer::new();
+
+    println!("{:?}", lex.lex(&mut stream));
 }
