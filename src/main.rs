@@ -8,30 +8,37 @@ I -> "a" | "b" | "c"
 use std::fmt::Debug;
 
 #[derive(Debug)]
-enum LexError {
-    ONE,
-    TWO,
-    THREE,
-    FOUR,
+struct Lexer<I: Iterator<Item = char>> {
+    stream: I,
+    line: usize,
+    col: usize,
 }
 
-trait Lex<S>
-where
-    for<'a> &'a mut S: Iterator<Item = char>,
-{
-    type Expected;
+impl<I: Iterator<Item = char>> From<I> for Lexer<I> {
+    fn from(stream: I) -> Self {
+        Lexer {
+            stream,
+            line: 1,
+            col: 0,
+        }
+    }
+}
 
-    fn lex(self, stream: &mut S) -> Result<Self::Expected, LexError>;
+type Element<I, E> = (Lexer<I>, E);
+
+#[derive(Debug)]
+struct LexError;
+
+type LexResult<I, E> = Result<Element<I, E>, LexError>;
+
+trait Tokenize<I: Iterator<Item = char>> {
+    type NextToken;
+
+    fn tokenize(self, lexer: Lexer<I>) -> LexResult<I, Self::NextToken>;
 }
 
 #[derive(Debug)]
-struct EmptyLexer;
-
-impl EmptyLexer {
-    fn new() -> Self {
-        Self {}
-    }
-}
+struct Empty;
 
 #[derive(Debug)]
 struct Expr {
@@ -39,34 +46,21 @@ struct Expr {
     rhs: u32,
 }
 
-impl<S> Lex<S> for EmptyLexer
-where
-    for<'a> &'a mut S: Iterator<Item = char>,
-{
-    type Expected = Expr;
+impl<I: Iterator<Item = char>> Tokenize<I> for Empty {
+    type NextToken = Expr;
 
-    fn lex(self, mut stream: &mut S) -> Result<Self::Expected, LexError> {
-        let lhs = stream
-            .next()
-            .ok_or(LexError::ONE)?
-            .to_digit(10)
-            .ok_or(LexError::TWO)?;
+    fn tokenize(self, mut lexer: Lexer<I>) -> LexResult<I, Self::NextToken> {
+        let mut iter = &mut lexer.stream;
 
-        let rhs = stream
-            .next()
-            .ok_or(LexError::THREE)?
-            .to_digit(10)
-            .ok_or(LexError::FOUR)?;
+        let lhs = iter.next().ok_or(LexError)?.to_digit(10).ok_or(LexError)?;
+        let rhs = iter.next().ok_or(LexError)?.to_digit(10).ok_or(LexError)?;
 
-        Ok(Expr { lhs, rhs })
+        Ok((lexer, Expr { lhs, rhs }))
     }
 }
 
 fn main() {
-    let mut stream = "12".chars();
-    println!("{stream:?}");
-
-    let lex = EmptyLexer::new();
-
-    println!("{:?}", lex.lex(&mut stream));
+    let lexer = Lexer::from("012".chars());
+    let start = Empty.tokenize(lexer);
+    println!("{start:?}");
 }
