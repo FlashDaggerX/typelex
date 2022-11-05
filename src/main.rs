@@ -5,10 +5,10 @@ F -> (E) | I
 I -> "a" | "b" | "c"
 */
 
-use std::{fmt::Debug, ops::Deref};
+use std::fmt::Debug;
 
 #[derive(Debug)]
-struct Lexer<I: Iterator<Item = char>> {
+struct Lexer<I> {
     stream: I,
     line: usize,
     col: usize,
@@ -24,7 +24,7 @@ impl<I: Iterator<Item = char>> Iterator for Lexer<I> {
         match c {
             Some('\n') => {
                 self.line += 1;
-                self.col += 0;
+                self.col = 0;
                 self.next()
             }
             Some(' ') => self.next(),
@@ -68,6 +68,17 @@ trait Tokenize<I: Iterator<Item = char>>: Streamable<I> {
 }
 
 #[derive(Debug)]
+struct Done;
+
+impl<I: Iterator<Item = char>> Tokenize<I> for Element<I, Done> {
+    type NextToken = Done;
+
+    fn tokenize(self) -> LexResult<I, Self::NextToken> {
+        Err(LexError)
+    }
+}
+
+#[derive(Debug)]
 struct Empty;
 
 #[derive(Debug)]
@@ -89,9 +100,36 @@ impl<I: Iterator<Item = char>> Tokenize<I> for Element<I, Empty> {
     }
 }
 
+impl<I: Iterator<Item = char>> Tokenize<I> for Element<I, Expr> {
+    type NextToken = u32;
+
+    fn tokenize(mut self) -> LexResult<I, Self::NextToken> {
+        let iter = &mut self.stream();
+
+        let num = iter.next().ok_or(LexError)?.to_digit(10).ok_or(LexError)?;
+
+        Ok((self.0, num))
+    }
+}
+
+impl<I: Iterator<Item = char>> Tokenize<I> for Element<I, u32> {
+    type NextToken = Done;
+
+    fn tokenize(self) -> LexResult<I, Self::NextToken> {
+        Ok((self.0, Done))
+    }
+}
+
 fn main() {
-    let lexer = new_lexer("012".chars());
+    let lexer = new_lexer("\n 0 1    2".chars());
     println!("{lexer:?}");
-    let lexer = lexer.tokenize().unwrap();
+
+    let lexer = lexer.tokenize();
+    println!("{lexer:?}");
+    let lexer = lexer.unwrap().tokenize();
+    println!("{lexer:?}");
+    let lexer = lexer.unwrap().tokenize();
+    println!("{lexer:?}");
+    let lexer = lexer.unwrap().tokenize();
     println!("{lexer:?}");
 }
