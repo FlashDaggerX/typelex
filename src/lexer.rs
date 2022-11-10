@@ -1,80 +1,144 @@
-use std::{fmt::Debug, str::CharIndices};
+use core::panic;
+use std::{fmt::Debug, iter::Peekable, str::Chars};
 
-use crate::token::Tokenize;
+const NEWLINE: char = '\n';
+const SPACE: char = ' ';
+
+#[derive(Debug)]
+pub struct Token<E> {
+    pub line: usize,
+    pub column: usize,
+    pub token: E,
+}
+
+#[derive(Debug)]
+struct Position {
+    line: usize,
+    column: usize,
+}
+
+impl Position {
+    fn newline(&mut self) {
+        self.line += 1;
+        self.column = 0;
+    }
+
+    fn advance(&mut self) {
+        self.column += 1;
+    }
+}
+
+/// Keeps last position of acceptance along with the current
+/// position within the token stream.
+#[derive(Debug)]
+struct LexemeCursor {
+    last: usize,
+    curr: usize,
+}
+
+impl LexemeCursor {
+    fn new_lexeme(&mut self) {
+        self.last = self.curr;
+    }
+
+    fn advance(&mut self) {
+        self.curr += 1;
+    }
+}
+
+#[derive(Debug)]
+pub enum LexError {
+    One,
+    Two,
+    Three,
+    Four,
+}
+
+pub type LexResult<'src, E> = Result<E, LexError>;
+
+pub trait Tokenize<'src>
+where
+    Self: Sized,
+{
+    fn tokenize(lexer: &mut Lexer<'src>) -> LexResult<'src, Self>;
+}
 
 #[derive(Debug)]
 pub struct Lexer<'src> {
     source: &'src str,
-    stream: CharIndices<'src>,
-    curr: usize,
-    last: usize,
-    line: usize,
-    col: usize,
+    stream: Peekable<Chars<'src>>,
+    cursor: LexemeCursor,
+    position: Position,
 }
 
 impl<'src> From<&'src str> for Lexer<'src> {
     fn from(source: &'src str) -> Self {
         Self {
             source,
-            stream: source.char_indices(),
-            curr: 0,
-            last: 0,
-            line: 1,
-            col: 0,
+            stream: source.chars().peekable(),
+            cursor: LexemeCursor { curr: 0, last: 0 },
+            position: Position { line: 1, column: 0 },
         }
     }
 }
 
 impl<'src> Lexer<'src> {
-    pub(crate) fn accept(&mut self) {
-        self.last = self.curr;
+    pub fn consume<E: Tokenize<'src>>(&mut self) -> LexResult<'src, Token<E>> {
+        let token = E::tokenize(self)?;
+        Ok(Token {
+            line: self.position.line,
+            column: self.position.column,
+            token,
+        })
     }
-}
 
-pub fn new_lexer<'src>(source: &'src str) -> Element<'src, Empty> {
-    (Lexer::from(source), Empty)
-}
-
-impl<'src> Iterator for Lexer<'src> {
-    type Item = (usize, char);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let c = self.stream.next();
-        self.col += 1;
-
-        if let Some((idx, _)) = c {
-            self.curr = idx;
+    pub fn accept<E: Tokenize<'src>>(&mut self) -> Token<E> {
+        if let Ok(elem) = self.consume::<E>() {
+            self.cursor.new_lexeme();
+            elem
+        } else {
+            panic!("Element is not acceptable!");
         }
+    }
+
+    pub fn peek(&mut self) -> Option<&char> {
+        let c = self.stream.peek()?;
+        self.cursor.advance();
+        Some(c)
+    }
+
+    pub fn advance_over_whitespace(&mut self) -> Option<char> {
+        let c = self.stream.next()?;
+
+        self.cursor.advance();
+        self.position.advance();
 
         match c {
-            Some((_, '\n')) => {
-                self.line += 1;
-                self.col = 0;
-                self.next()
+            NEWLINE => {
+                self.position.newline();
+                self.advance_over_whitespace()
             }
-            Some((_, ' ')) => self.next(),
-            _ => c,
+            SPACE => self.advance_over_whitespace(),
+            _ => Some(c),
         }
     }
-}
 
-#[derive(Debug)]
-pub struct Empty;
+    pub fn advance_if<F: FnOnce(&char) -> bool>(&mut self, expected: F) -> Option<char> {
+        self.stream.next_if(|c| {
+            self.cursor.advance();
+            self.position.advance();
 
-#[derive(Debug)]
-pub struct Done;
+            println!("POS {:?}", self.position);
 
-pub type Element<'src, E> = (Lexer<'src>, E);
+            if c == &NEWLINE {
+                self.position.newline();
+            }
 
-impl<'src> Tokenize<'src> for Element<'src, Done> {
-    type NextToken = Done;
+            expected(c)
+        })
+    }
 
-    fn tokenize(self) -> LexResult<'src, Self::NextToken> {
-        Err(LexError)
+    pub fn lexeme(&self) -> &'src str {
+        self.source.get(self.cursor.last..self.cursor.curr).unwrap()
     }
 }
-
-#[derive(Debug)]
-pub struct LexError;
-
-pub type LexResult<'src, E> = Result<Element<'src, E>, LexError>;

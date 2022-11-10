@@ -5,17 +5,11 @@ F -> (E) | I
 I -> "a" | "b" | "c"
 */
 
-use ptypes::{lexer::new_lexer, token::Tokenize};
+use typelex::{lexer::Lexer, token::digit::Digit};
 
 fn main() {
-    let lexer = new_lexer("012");
+	let mut lexer = Lexer::from("23414 312 |4 324 23 4 ");
+	println!("{:?}", lexer.accept::<Digit>());
+	println!("{:?}", lexer.consume::<Digit>());
 
-    let lexer = lexer.tokenize();
-    println!("{lexer:?}");
-    let lexer = lexer.unwrap().tokenize();
-    println!("{lexer:?}");
-    let lexer = lexer.unwrap().tokenize();
-    println!("{lexer:?}");
-    let lexer = lexer.unwrap().tokenize();
-    println!("{lexer:?}");
 }
