@@ -2,10 +2,9 @@ use core::panic;
 use std::{fmt::Debug, iter::Peekable, str::Chars};
 
 const NEWLINE: char = '\n';
-const SPACE: char = ' ';
 
-#[derive(Debug)]
-pub struct Token<E> {
+#[derive(PartialEq, Debug)]
+pub struct Token<E: PartialEq> {
     pub line: usize,
     pub column: usize,
     pub token: E,
@@ -54,13 +53,13 @@ pub enum LexError {
     Four,
 }
 
-pub type LexResult<'src, E> = Result<E, LexError>;
+pub type LexResult<E> = Result<E, LexError>;
 
 pub trait Tokenize<'src>
 where
     Self: Sized,
 {
-    fn tokenize(lexer: &mut Lexer<'src>) -> LexResult<'src, Self>;
+    fn tokenize(lexer: &mut Lexer<'src>) -> LexResult<Self>;
 }
 
 #[derive(Debug)]
@@ -71,8 +70,9 @@ pub struct Lexer<'src> {
     position: Position,
 }
 
-impl<'src> From<&'src str> for Lexer<'src> {
-    fn from(source: &'src str) -> Self {
+impl<'src> Lexer<'src> {
+    pub fn new<T: AsRef<str> + ?Sized>(source: &'src T) -> Self {
+        let source = source.as_ref();
         Self {
             source,
             stream: source.chars().peekable(),
@@ -83,8 +83,9 @@ impl<'src> From<&'src str> for Lexer<'src> {
 }
 
 impl<'src> Lexer<'src> {
-    pub fn consume<E: Tokenize<'src>>(&mut self) -> LexResult<'src, Token<E>> {
+    pub fn consume<E: Tokenize<'src> + PartialEq>(&mut self) -> LexResult<Token<E>> {
         let token = E::tokenize(self)?;
+        self.cursor.new_lexeme();
         Ok(Token {
             line: self.position.line,
             column: self.position.column,
@@ -92,9 +93,8 @@ impl<'src> Lexer<'src> {
         })
     }
 
-    pub fn accept<E: Tokenize<'src>>(&mut self) -> Token<E> {
+    pub fn accept<E: Tokenize<'src> + PartialEq>(&mut self) -> Token<E> {
         if let Ok(elem) = self.consume::<E>() {
-            self.cursor.new_lexeme();
             elem
         } else {
             panic!("Element is not acceptable!");
@@ -103,42 +103,52 @@ impl<'src> Lexer<'src> {
 
     pub fn peek(&mut self) -> Option<&char> {
         let c = self.stream.peek()?;
-        self.cursor.advance();
         Some(c)
     }
 
-    pub fn advance_over_whitespace(&mut self) -> Option<char> {
-        let c = self.stream.next()?;
-
-        self.cursor.advance();
-        self.position.advance();
-
-        match c {
-            NEWLINE => {
-                self.position.newline();
-                self.advance_over_whitespace()
+    pub fn advance_if(&mut self, expected: impl Fn(&char) -> bool) -> Option<&char> {
+        loop {
+            let item = self.stream.next_if(&expected);
+            match item {
+                Some(c) => {
+                    self.cursor.advance();
+                    if c == NEWLINE {
+                        // Why `new_lexeme` here? You can't have the same token type
+                        // on two different lines (unless it's a multiline string, which
+                        // is a special case.)
+                        self.position.newline();
+                        self.cursor.new_lexeme();
+                    } else {
+                        self.position.advance();
+                    }
+                }
+                None => break,
             }
-            SPACE => self.advance_over_whitespace(),
-            _ => Some(c),
         }
+        self.peek()
     }
 
-    pub fn advance_if<F: FnOnce(&char) -> bool>(&mut self, expected: F) -> Option<char> {
-        self.stream.next_if(|c| {
-            self.cursor.advance();
-            self.position.advance();
+    pub fn skip_whitespace(&mut self) -> Option<&char> {
+        self.advance_if(|c| c.is_whitespace())
+    }
 
-            println!("POS {:?}", self.position);
+    pub fn start_lexeme(&mut self) {
+        self.cursor.new_lexeme();
+    }
 
-            if c == &NEWLINE {
-                self.position.newline();
-            }
-
-            expected(c)
-        })
+    pub fn lex_if(&mut self, expected: impl Fn(&char) -> bool) {
+        self.skip_whitespace();
+        self.start_lexeme();
+        self.advance_if(expected);
     }
 
     pub fn lexeme(&self) -> &'src str {
-        self.source.get(self.cursor.last..self.cursor.curr).unwrap()
+        match self.source.get(self.cursor.last..self.cursor.curr) {
+            Some(tslice) => tslice,
+            None => panic!(
+                "Error obtaining lexeme (slice is {:?})",
+                self.cursor.last..self.cursor.curr,
+            ),
+        }
     }
 }
